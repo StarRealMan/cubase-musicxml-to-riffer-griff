@@ -1,0 +1,708 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Cubase MusicXML → Ample Riffer .griff</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #0f1115;
+      --panel: #171a21;
+      --panel2: #1d212a;
+      --text: #eef1f6;
+      --muted: #a8b0bf;
+      --line: #303744;
+      --accent: #7aa2ff;
+      --good: #6fd39a;
+      --warn: #f1c76b;
+      --bad: #ff8080;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.45;
+    }
+    .wrap { max-width: 1060px; margin: 0 auto; padding: 28px 18px 48px; }
+    h1 { margin: 0 0 8px; font-size: 28px; }
+    .lead { margin: 0 0 24px; color: var(--muted); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 16px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 18px;
+    }
+    .card.full { grid-column: 1 / -1; }
+    h2 { font-size: 17px; margin: 0 0 14px; }
+    label { display: block; font-size: 13px; color: var(--muted); margin: 12px 0 6px; }
+    input, select, button {
+      font: inherit;
+    }
+    input[type="file"], input[type="number"], select {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: var(--panel2);
+      color: var(--text);
+      border-radius: 9px;
+      padding: 10px 11px;
+    }
+    .range { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .hint { font-size: 12px; color: var(--muted); margin-top: 7px; }
+    .status {
+      border: 1px solid var(--line);
+      background: var(--panel2);
+      border-radius: 10px;
+      padding: 12px;
+      min-height: 48px;
+      white-space: pre-wrap;
+      font-size: 13px;
+    }
+    .good { color: var(--good); }
+    .warn { color: var(--warn); }
+    .bad { color: var(--bad); }
+    .actions { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; margin-top: 16px; }
+    button {
+      border: 0;
+      border-radius: 9px;
+      padding: 11px 16px;
+      cursor: pointer;
+      font-weight: 650;
+    }
+    button.primary { background: var(--accent); color: #08101f; }
+    button.secondary { background: var(--panel2); color: var(--text); border: 1px solid var(--line); }
+    button:disabled { opacity: .45; cursor: not-allowed; }
+    table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    th, td { border-bottom: 1px solid var(--line); text-align: left; padding: 8px 6px; }
+    th { color: var(--muted); font-weight: 600; }
+    .scroll { overflow: auto; max-height: 340px; }
+    code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
+    .pill { display: inline-block; border: 1px solid var(--line); border-radius: 999px; padding: 2px 8px; font-size: 12px; color: var(--muted); margin-right: 6px; }
+    @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } .card.full { grid-column: auto; } }
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Cubase MusicXML → Ample Riffer .griff</h1>
+  <p class="lead">把 Cubase 和弦轨导出的 MusicXML 写入 Riffer 4 Chord Lane；可在原有 .griff 上按小节增量更新，并保留其它 riff 内容。</p>
+
+  <div class="grid">
+    <section class="card">
+      <h2>1. 输入文件</h2>
+      <label>完整 MusicXML（必选）</label>
+      <input id="xmlFile" type="file" accept=".xml,.musicxml,text/xml,application/xml" />
+      <div id="xmlInfo" class="hint">等待选择 Cubase 导出的 .xml / .musicxml</div>
+
+      <label>原始 .griff（可选，但增量更新时建议选择）</label>
+      <input id="griffFile" type="file" accept=".griff,.xml,text/xml,application/xml" />
+      <div id="griffInfo" class="hint">不选择时，会生成一个仅包含和弦轨的 6 弦 AGTC .griff。</div>
+    </section>
+
+    <section class="card">
+      <h2>2. 更新范围与和弦模式</h2>
+      <div class="range">
+        <div>
+          <label>起始小节（含）</label>
+          <input id="startMeasure" type="number" min="1" value="1" />
+        </div>
+        <div>
+          <label>结束小节（含）</label>
+          <input id="endMeasure" type="number" min="1" value="1" />
+        </div>
+      </div>
+      <div class="hint">按 MusicXML 的小节编号。所选区间内的旧和弦会被 XML 的和弦状态完整覆盖，区间外保持不变。</div>
+
+      <label>和弦处理</label>
+      <select id="mode">
+        <option value="preserve">原样保留（如 Gm7 / Ebmaj7 / F7）</option>
+        <option value="triad">转为基础三和弦（去掉 7 / Maj7 / 6 / add 等扩展）</option>
+        <option value="power">全部转为强力和弦（5）</option>
+        <option value="octave">全部转为八度音（oct）</option>
+      </select>
+      <div class="hint">Riffer 4 原生支持 <code>5</code> 与 <code>oct</code> 类型。</div>
+    </section>
+
+    <section class="card full">
+      <h2>3. 预览</h2>
+      <div id="status" class="status">请选择 MusicXML。</div>
+      <div class="actions">
+        <button id="previewBtn" class="secondary" disabled>刷新预览</button>
+        <button id="convertBtn" class="primary" disabled>生成并下载 .griff</button>
+      </div>
+      <div class="scroll" style="margin-top:14px">
+        <table>
+          <thead><tr><th>#</th><th>小节</th><th>位置</th><th>原和弦</th><th>写入 Riffer</th></tr></thead>
+          <tbody id="previewBody"><tr><td colspan="5" style="color:var(--muted)">暂无数据</td></tr></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="card full">
+      <h2>工作方式</h2>
+      <div class="hint" style="font-size:13px;line-height:1.7">
+        <span class="pill">非破坏</span> 浏览器只读取本地文件并生成一个新文件，不会覆盖原 .griff。<br>
+        <span class="pill">增量</span> 仅替换指定小节区间的顶层 <code>&lt;Chord&gt;</code> 节点；原 .griff 的其它节点、属性、riff 音符/技巧数据保持在文档中。<br>
+        <span class="pill">边界</span> 跨越更新边界的旧和弦会被切开保留区间外部分；XML 中从前一小节延续进来的和弦会从更新区间起点接续。<br>
+        <span class="pill">指法</span> 优先复用原 .griff 中已有的同类和弦指法；没有可复用指法时使用标准 6 弦吉他 fallback 指法。
+      </div>
+    </section>
+  </div>
+</div>
+
+<script>
+(() => {
+  'use strict';
+
+  const PPQ_DEFAULT = 480;
+  const SHARP_NAMES = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'];
+  const PC = {C:0,'C#':1,D:2,'D#':3,E:4,F:5,'F#':6,G:7,'G#':8,A:9,'A#':10,B:11};
+  const STEP_PC = {C:0,D:2,E:4,F:5,G:7,A:9,B:11};
+  const STD_TUNING_PC = [4,9,2,7,11,4]; // string 6 -> 1: E A D G B E
+
+  const els = {
+    xmlFile: document.getElementById('xmlFile'),
+    griffFile: document.getElementById('griffFile'),
+    xmlInfo: document.getElementById('xmlInfo'),
+    griffInfo: document.getElementById('griffInfo'),
+    start: document.getElementById('startMeasure'),
+    end: document.getElementById('endMeasure'),
+    mode: document.getElementById('mode'),
+    status: document.getElementById('status'),
+    previewBody: document.getElementById('previewBody'),
+    previewBtn: document.getElementById('previewBtn'),
+    convertBtn: document.getElementById('convertBtn'),
+  };
+
+  let xmlState = null;
+  let griffState = null;
+
+  function readFile(file) {
+    return new Promise((resolve, reject) => {
+      const r = new FileReader();
+      r.onload = () => resolve(String(r.result));
+      r.onerror = () => reject(r.error || new Error('读取文件失败'));
+      r.readAsText(file, 'UTF-8');
+    });
+  }
+
+  function parseXml(text, label) {
+    const doc = new DOMParser().parseFromString(text, 'application/xml');
+    const err = doc.querySelector('parsererror');
+    if (err) throw new Error(`${label} XML 解析失败：${err.textContent.trim().slice(0,240)}`);
+    return doc;
+  }
+
+  function directChildren(el, tag) {
+    return Array.from(el.children).filter(x => x.tagName === tag);
+  }
+
+  function textOf(parent, selector, fallback='') {
+    const n = parent.querySelector(selector);
+    return n ? (n.textContent || '').trim() : fallback;
+  }
+
+  function intText(parent, selector, fallback=0) {
+    const v = Number.parseInt(textOf(parent, selector, ''), 10);
+    return Number.isFinite(v) ? v : fallback;
+  }
+
+  function normalizePitch(step, alter=0) {
+    const base = STEP_PC[step];
+    if (base === undefined) throw new Error(`未知根音：${step}`);
+    return SHARP_NAMES[(base + alter + 120) % 12];
+  }
+
+  function parseMusicXML(doc) {
+    const root = doc.documentElement;
+    if (!root || root.tagName !== 'score-partwise') {
+      throw new Error('当前 v1 需要 score-partwise MusicXML（Cubase 默认导出格式）。');
+    }
+
+    const parts = Array.from(root.querySelectorAll(':scope > part'));
+    if (!parts.length) throw new Error('MusicXML 中没有找到 part。');
+    let part = parts[0];
+    let bestCount = -1;
+    for (const p of parts) {
+      const c = p.querySelectorAll('harmony').length;
+      if (c > bestCount) { bestCount = c; part = p; }
+    }
+    if (bestCount <= 0) throw new Error('MusicXML 中没有找到 <harmony> 和弦事件。');
+
+    const measures = directChildren(part, 'measure');
+    let divisions = 1;
+    let beats = 4;
+    let beatType = 4;
+    let quarterCursor = 0;
+    const measureMap = [];
+    const events = [];
+    const timeSigs = new Set();
+
+    for (let idx=0; idx<measures.length; idx++) {
+      const m = measures[idx];
+      const attrs = directChildren(m, 'attributes')[0];
+      if (attrs) {
+        const d = intText(attrs, 'divisions', divisions);
+        if (d > 0) divisions = d;
+        const time = directChildren(attrs, 'time')[0];
+        if (time) {
+          beats = intText(time, 'beats', beats);
+          beatType = intText(time, 'beat-type', beatType);
+        }
+      }
+      timeSigs.add(`${beats}/${beatType}`);
+      const numberAttr = m.getAttribute('number') || String(idx+1);
+      const number = Number.parseInt(numberAttr, 10);
+      const measureNumber = Number.isFinite(number) ? number : (idx+1);
+      const qLen = beats * 4 / beatType;
+      const qStart = quarterCursor;
+      const qEnd = qStart + qLen;
+      measureMap.push({index: idx+1, number: measureNumber, label: numberAttr, qStart, qEnd, beats, beatType});
+
+      let cursor = 0;
+      for (const child of Array.from(m.children)) {
+        if (child.tagName === 'note') {
+          const duration = intText(child, 'duration', 0);
+          if (!directChildren(child, 'chord').length) cursor += duration;
+        } else if (child.tagName === 'backup') {
+          cursor -= intText(child, 'duration', 0);
+        } else if (child.tagName === 'forward') {
+          cursor += intText(child, 'duration', 0);
+        } else if (child.tagName === 'harmony') {
+          const rootEl = directChildren(child, 'root')[0];
+          if (!rootEl) continue;
+          const step = textOf(rootEl, 'root-step');
+          const alter = intText(rootEl, 'root-alter', 0);
+          const kindEl = directChildren(child, 'kind')[0];
+          const kind = kindEl ? (kindEl.textContent || '').trim() : 'major';
+          const kindText = kindEl ? (kindEl.getAttribute('text') || '') : '';
+          const offset = intText(child, 'offset', 0);
+          const bassEl = directChildren(child, 'bass')[0];
+          let bassStep = null, bassAlter = 0;
+          if (bassEl) {
+            bassStep = textOf(bassEl, 'bass-step');
+            bassAlter = intText(bassEl, 'bass-alter', 0);
+          }
+          const qPos = qStart + (cursor + offset) / divisions;
+          events.push({qBegin:qPos, step, alter, kind, kindText, bassStep, bassAlter, measureNumber});
+        }
+      }
+      quarterCursor = qEnd;
+    }
+
+    events.sort((a,b) => a.qBegin - b.qBegin);
+    for (let i=0; i<events.length; i++) {
+      events[i].qEnd = i+1 < events.length ? events[i+1].qBegin : quarterCursor;
+    }
+
+    const tempoEl = root.querySelector('sound[tempo]');
+    const tempo = tempoEl ? Number.parseFloat(tempoEl.getAttribute('tempo')) : 120;
+    const title = textOf(root, 'work > work-title', 'Untitled');
+
+    return {doc, title, tempo, measures:measureMap, events, totalQuarters:quarterCursor, timeSigs:[...timeSigs]};
+  }
+
+  function parseGriff(doc) {
+    const root = doc.documentElement;
+    if (!root || root.tagName !== 'Riff') throw new Error('选择的文件不是可识别的 .griff（根节点应为 <Riff>）。');
+    const ppq = Number.parseInt(root.getAttribute('PPQBase') || String(PPQ_DEFAULT), 10) || PPQ_DEFAULT;
+    return {doc, root, ppq};
+  }
+
+  function measureByNumber(state, n) {
+    return state.measures.find(m => m.number === n) || null;
+  }
+
+  function sourceLabel(ev) {
+    const root = normalizePitch(ev.step, ev.alter);
+    const names = {
+      major:'', minor:'m', dominant:'7', 'major-seventh':'maj7', 'minor-seventh':'m7',
+      'suspended-second':'sus2','suspended-fourth':'sus4', augmented:'aug', diminished:'dim',
+      'major-sixth':'6','minor-sixth':'m6', power:'5'
+    };
+    const suffix = ev.kindText || (names[ev.kind] ?? `(${ev.kind})`);
+    const bass = ev.bassStep ? `/${normalizePitch(ev.bassStep, ev.bassAlter)}` : '';
+    return `${root}${suffix}${bass}`;
+  }
+
+  function mapChord(ev, mode) {
+    const root = normalizePitch(ev.step, ev.alter);
+    const bass = ev.bassStep ? normalizePitch(ev.bassStep, ev.bassAlter) : root;
+
+    if (mode === 'power') return {root, type:'5', extension:'null', alteration:'null', bass:root};
+    if (mode === 'octave') return {root, type:'oct', extension:'null', alteration:'null', bass:root};
+
+    const isMinorFamily = new Set(['minor','minor-seventh','minor-sixth','minor-ninth','minor-11th','minor-13th']);
+    if (mode === 'triad') {
+      if (isMinorFamily.has(ev.kind)) return {root,type:'minor',extension:'null',alteration:'null',bass};
+      if (ev.kind === 'diminished' || ev.kind === 'diminished-seventh' || ev.kind === 'half-diminished') return {root,type:'dim',extension:'null',alteration:'null',bass};
+      if (ev.kind === 'augmented' || ev.kind === 'augmented-seventh') return {root,type:'aug',extension:'null',alteration:'null',bass};
+      if (ev.kind === 'suspended-second') return {root,type:'sus2',extension:'null',alteration:'null',bass};
+      if (ev.kind === 'suspended-fourth') return {root,type:'sus4',extension:'null',alteration:'null',bass};
+      if (ev.kind === 'power') return {root,type:'5',extension:'null',alteration:'null',bass:root};
+      return {root,type:'Maj',extension:'null',alteration:'null',bass};
+    }
+
+    const exact = {
+      'major': ['Maj','null','null'],
+      'minor': ['minor','null','null'],
+      'dominant': ['Maj','7','null'],
+      'major-seventh': ['Maj','Maj7','null'],
+      'minor-seventh': ['minor','7','null'],
+      'major-sixth': ['Maj','6','null'],
+      'minor-sixth': ['minor','6','null'],
+      'suspended-second': ['sus2','null','null'],
+      'suspended-fourth': ['sus4','null','null'],
+      'augmented': ['aug','null','null'],
+      'diminished': ['dim','null','null'],
+      'power': ['5','null','null'],
+      'dominant-ninth': ['Maj','7','9'],
+      'major-ninth': ['Maj','Maj7','9'],
+      'minor-ninth': ['minor','7','9'],
+      'dominant-11th': ['Maj','11','null'],
+      'minor-11th': ['minor','11','null'],
+    };
+    const hit = exact[ev.kind];
+    if (!hit) throw new Error(`当前“原样保留”模式暂未映射 MusicXML 和弦类型：${ev.kind}（${sourceLabel(ev)}）。可先用“三和弦 / 强力 / 八度”模式，或把该例发来扩展映射。`);
+    return {root,type:hit[0],extension:hit[1],alteration:hit[2],bass};
+  }
+
+  function mappedLabel(m) {
+    let s = m.root;
+    if (m.type === 'minor') s += 'm';
+    else if (!['Maj'].includes(m.type)) s += m.type;
+    if (m.extension === '7') s += '7';
+    else if (m.extension === 'Maj7') s += 'maj7';
+    else if (m.extension !== 'null') s += m.extension;
+    if (m.alteration !== 'null') s += m.alteration;
+    if (m.bass && m.bass !== m.root) s += `/${m.bass}`;
+    return s;
+  }
+
+  function chordSignature(m) {
+    return [m.root,m.type,m.extension,m.alteration,m.bass].join('|');
+  }
+
+  function chordSignatureFromEl(el) {
+    return [
+      el.getAttribute('RootNote') || '', el.getAttribute('ChordType') || '',
+      el.getAttribute('Extension') || 'null', el.getAttribute('Alteration') || 'null',
+      el.getAttribute('BassNote') || el.getAttribute('RootNote') || ''
+    ].join('|');
+  }
+
+  function fretArrayFromChord(el) {
+    const out = [-1,-1,-1,-1,-1,-1];
+    for (const s of directChildren(el,'String')) {
+      const id = Number.parseInt(s.getAttribute('ID') || '0',10);
+      if (id >= 1 && id <= 6) out[6-id] = Number.parseInt(s.getAttribute('Fret') || '-1',10);
+    }
+    return out;
+  }
+
+  function buildVoicingCache(root) {
+    const map = new Map();
+    if (!root) return map;
+    for (const c of directChildren(root,'Chord')) {
+      const sig = chordSignatureFromEl(c);
+      if (!map.has(sig)) map.set(sig, fretArrayFromChord(c));
+    }
+    return map;
+  }
+
+  function rootFret(rootPc, openPc) { return (rootPc - openPc + 12) % 12; }
+
+  function basicVoicing(mapped) {
+    const rPc = PC[mapped.root];
+    if (rPc === undefined) return [-1,-1,-1,-1,-1,-1];
+    const r6 = rootFret(rPc, 4);
+    const r5 = rootFret(rPc, 9);
+    const chooseA = r5 <= r6 && r5 <= 7;
+    const r = chooseA ? r5 : r6;
+
+    if (mapped.type === '5') {
+      return chooseA ? [-1,r,r+2,r+2,-1,-1] : [r,r+2,r+2,-1,-1,-1];
+    }
+    if (mapped.type === 'oct') {
+      return chooseA ? [-1,r,-1,r+2,-1,-1] : [r,-1,r+2,-1,-1,-1];
+    }
+    if (mapped.type === 'minor') {
+      if (mapped.extension === '7') return chooseA ? [-1,r,r+2,r,r+1,r] : [r,r+2,r,r,r,r];
+      return chooseA ? [-1,r,r+2,r+2,r+1,r] : [r,r+2,r+2,r,r,r];
+    }
+    if (mapped.type === 'sus4') return chooseA ? [-1,r,r+2,r+2,r+3,r] : [r,r+2,r+2,r+2,r,r];
+    if (mapped.type === 'sus2') return [r6,r6+2,r6+4,r6+4,r6,r6];
+    if (mapped.type === 'aug') return [r6,r6+3,r6+2,r6+1,r6+1,r6];
+    if (mapped.type === 'dim') return genericVoicing(rPc, [0,3,6], mapped.bass);
+    if (mapped.type === 'Maj') {
+      if (mapped.extension === '7') return chooseA ? [-1,r,r+2,r,r+2,r] : [r,r+2,r,r+1,r,r];
+      if (mapped.extension === 'Maj7') return chooseA ? [-1,r,r+2,r+1,r+2,r] : [r,r+2,r+1,r+1,r,r];
+      return chooseA ? [-1,r,r+2,r+2,r+2,r] : [r,r+2,r+2,r+1,r,r];
+    }
+    return genericVoicing(rPc, [0,4,7], mapped.bass);
+  }
+
+  function genericVoicing(rootPc, intervals, bassName) {
+    const target = new Set(intervals.map(i => (rootPc+i)%12));
+    const bassPc = PC[bassName] ?? rootPc;
+    let best = null;
+    for (let pos=0; pos<=8; pos++) {
+      const choices = STD_TUNING_PC.map(openPc => {
+        const arr = [-1];
+        for (let f=0; f<=12; f++) {
+          if (f !== 0 && (f < pos || f > pos+4)) continue;
+          if (target.has((openPc+f)%12)) arr.push(f);
+        }
+        return arr.slice(0,5);
+      });
+      let beam = [{frets:[], pcs:[], score:0}];
+      for (let s=0; s<6; s++) {
+        const next = [];
+        for (const st of beam) for (const f of choices[s]) {
+          const pcs = st.pcs.slice();
+          if (f >= 0) pcs.push((STD_TUNING_PC[s]+f)%12);
+          const sounding = pcs.length;
+          let score = st.score + (f < 0 ? 2.4 : 0) + (f > 0 ? f*0.025 : 0);
+          next.push({frets:st.frets.concat([f]), pcs, score, sounding});
+        }
+        next.sort((a,b)=>a.score-b.score);
+        beam = next.slice(0,180);
+      }
+      for (const st of beam) {
+        if (st.pcs.length < Math.min(3, target.size+1)) continue;
+        const set = new Set(st.pcs);
+        let miss = 0; for (const pc of target) if (!set.has(pc)) miss++;
+        if (miss) continue;
+        const soundingFrets = st.frets.filter(f=>f>=0);
+        const fretted = soundingFrets.filter(f=>f>0);
+        const span = fretted.length ? Math.max(...fretted)-Math.min(...fretted) : 0;
+        const firstSoundIdx = st.frets.findIndex(f=>f>=0);
+        const lowPc = firstSoundIdx>=0 ? (STD_TUNING_PC[firstSoundIdx]+st.frets[firstSoundIdx])%12 : rootPc;
+        const score = st.score + span*1.7 + (lowPc===bassPc ? 0 : 2.2);
+        if (!best || score < best.score) best = {frets:st.frets, score};
+      }
+    }
+    return best ? best.frets : [-1,-1,-1,-1,-1,-1];
+  }
+
+  function createChordElement(doc, mapped, begin, end, voicing) {
+    const c = doc.createElement('Chord');
+    c.setAttribute('ChordType', mapped.type);
+    c.setAttribute('RootNote', mapped.root);
+    c.setAttribute('Extension', mapped.extension);
+    c.setAttribute('Alteration', mapped.alteration);
+    c.setAttribute('Position', '0');
+    c.setAttribute('Begin', String(Math.round(begin)));
+    c.setAttribute('End', String(Math.round(end)));
+    c.setAttribute('BassNote', mapped.bass || mapped.root);
+    for (let id=6; id>=1; id--) {
+      const s = doc.createElement('String');
+      s.setAttribute('ID', String(id));
+      s.setAttribute('Fret', String(voicing[6-id] ?? -1));
+      c.appendChild(s);
+    }
+    return c;
+  }
+
+  function newGriffDoc(xml, ppq) {
+    const doc = document.implementation.createDocument('', 'Riff', null);
+    const r = doc.documentElement;
+    const firstTS = xml.measures[0] || {beats:4,beatType:4};
+    const attrs = {
+      Author:'', Category:'User', Measures:String(xml.measures.length),
+      'Time-Signature':`${firstTS.beats}/${firstTS.beatType}`,
+      Quantize:'1/8', Tempo:String(Math.round(xml.tempo || 120)), Type:'Strum', Rating:'0',
+      numStr:'6', Inst:'AGTC', Ver:'2.1', PPQBase:String(ppq), loopMode:'false', loopStart:'0', loopEnd:'0',
+      Key:'C', 'ccName-0':'Bend','ccVisibility-0':'1','ccName-1':'1.Mod','ccVisibility-1':'1',
+      'ccName-3':'64.Hold','ccVisibility-3':'1','ccName-4':'7.Volume','ccVisibility-4':'1'
+    };
+    for (const [k,v] of Object.entries(attrs)) r.setAttribute(k,v);
+    return doc;
+  }
+
+  function buildSegments(xml, startM, endM, ppq, mode) {
+    const sm = measureByNumber(xml,startM), em = measureByNumber(xml,endM);
+    if (!sm || !em) throw new Error(`小节范围无效。MusicXML 可用小节：${xml.measures[0].number}–${xml.measures[xml.measures.length-1].number}`);
+    if (em.qEnd <= sm.qStart) throw new Error('结束小节必须不早于起始小节。');
+    const rangeStart = Math.round(sm.qStart*ppq);
+    const rangeEnd = Math.round(em.qEnd*ppq);
+    const segments = [];
+    for (const ev of xml.events) {
+      const b = Math.round(ev.qBegin*ppq), e = Math.round(ev.qEnd*ppq);
+      if (e <= rangeStart || b >= rangeEnd) continue;
+      const mapped = mapChord(ev,mode);
+      segments.push({begin:Math.max(b,rangeStart), end:Math.min(e,rangeEnd), ev, mapped});
+    }
+    return {rangeStart,rangeEnd,segments};
+  }
+
+  function cloneDoc(doc) { return parseXml(new XMLSerializer().serializeToString(doc),'GRIFF'); }
+
+  function patchGriff(xml, baseState, startM, endM, mode) {
+    const ppq = baseState ? baseState.ppq : PPQ_DEFAULT;
+    const doc = baseState ? cloneDoc(baseState.doc) : newGriffDoc(xml,ppq);
+    const root = doc.documentElement;
+    const cache = buildVoicingCache(root);
+    const {rangeStart,rangeEnd,segments} = buildSegments(xml,startM,endM,ppq,mode);
+
+    const chords = directChildren(root,'Chord');
+    for (const c of chords) {
+      const b = Number.parseInt(c.getAttribute('Begin') || '0',10);
+      const e = Number.parseInt(c.getAttribute('End') || '0',10);
+      if (e <= rangeStart || b >= rangeEnd) continue;
+      if (b < rangeStart && e > rangeEnd) {
+        c.setAttribute('End',String(rangeStart));
+        const right = c.cloneNode(true);
+        right.setAttribute('Begin',String(rangeEnd));
+        right.setAttribute('End',String(e));
+        c.parentNode.insertBefore(right,c.nextSibling);
+      } else if (b < rangeStart && e > rangeStart) {
+        c.setAttribute('End',String(rangeStart));
+      } else if (b < rangeEnd && e > rangeEnd) {
+        c.setAttribute('Begin',String(rangeEnd));
+      } else {
+        c.remove();
+      }
+    }
+
+    const currentChords = directChildren(root,'Chord');
+    let anchor = null, anchorBegin = Infinity;
+    for (const c of currentChords) {
+      const b = Number.parseInt(c.getAttribute('Begin') || '0',10);
+      if (b >= rangeStart && b < anchorBegin) { anchor = c; anchorBegin = b; }
+    }
+
+    for (const seg of segments) {
+      const sig = chordSignature(seg.mapped);
+      const voicing = cache.get(sig) || basicVoicing(seg.mapped);
+      const node = createChordElement(doc,seg.mapped,seg.begin,seg.end,voicing);
+      if (anchor) root.insertBefore(node,anchor); else root.appendChild(node);
+    }
+
+    const existingMeasures = Number.parseInt(root.getAttribute('Measures') || '0',10) || 0;
+    root.setAttribute('Measures',String(Math.max(existingMeasures,xml.measures.length,endM)));
+
+    return {doc,ppq,rangeStart,rangeEnd,segments};
+  }
+
+  function serializeGriff(doc) {
+    const raw = new XMLSerializer().serializeToString(doc.documentElement);
+    return `<?xml version="1.0" encoding="UTF-8"?>\n${raw}\n`;
+  }
+
+  function measureAtTick(xml,tick,ppq) {
+    const q = tick/ppq;
+    const m = xml.measures.find(m => q >= m.qStart && q < m.qEnd) || xml.measures[xml.measures.length-1];
+    const beat = (q-m.qStart) * m.beatType/4 + 1;
+    return {measure:m.number, beat};
+  }
+
+  function renderPreview() {
+    try {
+      if (!xmlState) throw new Error('请先选择 MusicXML。');
+      const startM = Number.parseInt(els.start.value,10), endM = Number.parseInt(els.end.value,10);
+      const mode = els.mode.value;
+      const ppq = griffState ? griffState.ppq : PPQ_DEFAULT;
+      const result = buildSegments(xmlState,startM,endM,ppq,mode);
+
+      const warnings = [];
+      if (xmlState.timeSigs.length > 1) warnings.push(`检测到变拍号：${xmlState.timeSigs.join(', ')}。时间位置会按 MusicXML 累计计算，但 Riffer 顶层只保存一个 Time-Signature 属性，请额外核对。`);
+      if (griffState) {
+        const gts = griffState.root.getAttribute('Time-Signature');
+        const firstTs = `${xmlState.measures[0].beats}/${xmlState.measures[0].beatType}`;
+        if (gts && gts !== firstTs) warnings.push(`原 .griff 拍号 ${gts} 与 MusicXML 起始拍号 ${firstTs} 不一致；工具会保留原 .griff 元数据，但按 MusicXML 小节位置更新和弦。`);
+      }
+
+      els.status.innerHTML = `<span class="good">可转换</span> · ${xmlState.title} · ${xmlState.events.length} 个和弦事件 · 更新 ${startM}–${endM} 小节 · 写入 ${result.segments.length} 个区间${griffState ? ' · 将保留原 .griff 其它内容' : ' · 将新建 chord-only .griff'}${warnings.length ? `\n<span class="warn">⚠ ${warnings.join('\n⚠ ')}</span>` : ''}`;
+      els.previewBody.innerHTML = '';
+      const max = Math.min(result.segments.length,80);
+      for (let i=0;i<max;i++) {
+        const s = result.segments[i];
+        const loc = measureAtTick(xmlState,s.begin,ppq);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `<td>${i+1}</td><td>${loc.measure}</td><td>${loc.measure}:${loc.beat.toFixed(2)}</td><td>${escapeHtml(sourceLabel(s.ev))}</td><td>${escapeHtml(mappedLabel(s.mapped))}</td>`;
+        els.previewBody.appendChild(tr);
+      }
+      if (result.segments.length > max) {
+        const tr = document.createElement('tr'); tr.innerHTML=`<td colspan="5" style="color:var(--muted)">… 还有 ${result.segments.length-max} 个区间未显示</td>`; els.previewBody.appendChild(tr);
+      }
+      if (!result.segments.length) els.previewBody.innerHTML='<tr><td colspan="5">所选范围内没有和弦状态。</td></tr>';
+      els.convertBtn.disabled = false;
+      return result;
+    } catch (e) {
+      els.status.innerHTML = `<span class="bad">${escapeHtml(e.message || String(e))}</span>`;
+      els.previewBody.innerHTML = '<tr><td colspan="5" style="color:var(--muted)">无法预览</td></tr>';
+      els.convertBtn.disabled = true;
+      return null;
+    }
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>'"]/g, ch => ({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[ch]));
+  }
+
+  function safeBaseName(name) { return name.replace(/\.(musicxml|xml|griff)$/i,'').replace(/[^\w\-\u4e00-\u9fff]+/g,'_'); }
+
+  async function loadXmlFile() {
+    try {
+      const f = els.xmlFile.files[0];
+      if (!f) { xmlState=null; els.previewBtn.disabled=true; els.convertBtn.disabled=true; return; }
+      const text = await readFile(f);
+      const doc = parseXml(text,'MusicXML');
+      xmlState = parseMusicXML(doc);
+      const minM=xmlState.measures[0].number, maxM=xmlState.measures[xmlState.measures.length-1].number;
+      els.start.min=String(minM); els.start.max=String(maxM); els.start.value=String(minM);
+      els.end.min=String(minM); els.end.max=String(maxM); els.end.value=String(maxM);
+      els.xmlInfo.textContent = `${f.name} · ${xmlState.measures.length} 小节 · ${xmlState.events.length} 个 harmony · ${xmlState.tempo || '?'} BPM · ${xmlState.timeSigs.join(', ')}`;
+      els.previewBtn.disabled=false;
+      renderPreview();
+    } catch(e) {
+      xmlState=null; els.xmlInfo.textContent=`错误：${e.message}`; els.previewBtn.disabled=true; els.convertBtn.disabled=true; renderPreview();
+    }
+  }
+
+  async function loadGriffFile() {
+    try {
+      const f = els.griffFile.files[0];
+      if (!f) { griffState=null; els.griffInfo.textContent='未选择：将生成 chord-only 6 弦 AGTC .griff。'; renderPreview(); return; }
+      const text=await readFile(f); const doc=parseXml(text,'GRIFF'); griffState=parseGriff(doc);
+      const chords=directChildren(griffState.root,'Chord').length;
+      const nonChord=griffState.root.children.length-chords;
+      els.griffInfo.textContent=`${f.name} · PPQ ${griffState.ppq} · ${chords} 个和弦节点 · ${nonChord} 个其它顶层节点（将保留）`;
+      renderPreview();
+    } catch(e) {
+      griffState=null; els.griffInfo.textContent=`错误：${e.message}`; renderPreview();
+    }
+  }
+
+  function downloadResult() {
+    try {
+      if (!xmlState) throw new Error('请先选择 MusicXML。');
+      const startM=Number.parseInt(els.start.value,10), endM=Number.parseInt(els.end.value,10), mode=els.mode.value;
+      const result=patchGriff(xmlState,griffState,startM,endM,mode);
+      const text=serializeGriff(result.doc);
+      const blob=new Blob([text],{type:'application/xml;charset=utf-8'});
+      const a=document.createElement('a');
+      const sourceName = els.griffFile.files[0]?.name || els.xmlFile.files[0]?.name || 'riff';
+      const modeSuffix={preserve:'original',triad:'triad',power:'power5',octave:'oct'}[mode] || mode;
+      a.href=URL.createObjectURL(blob);
+      a.download=`${safeBaseName(sourceName)}_m${startM}-${endM}_${modeSuffix}.griff`;
+      document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(a.href),1500);
+      els.status.innerHTML = `<span class="good">已生成</span> · ${a.download} · ${result.segments.length} 个和弦区间写入 ${startM}–${endM} 小节。原文件未被修改。`;
+    } catch(e) {
+      els.status.innerHTML=`<span class="bad">生成失败：${escapeHtml(e.message || String(e))}</span>`;
+    }
+  }
+
+  els.xmlFile.addEventListener('change',loadXmlFile);
+  els.griffFile.addEventListener('change',loadGriffFile);
+  els.previewBtn.addEventListener('click',renderPreview);
+  els.convertBtn.addEventListener('click',downloadResult);
+  for (const el of [els.start,els.end,els.mode]) el.addEventListener('change',renderPreview);
+})();
+</script>
+</body>
+</html>
